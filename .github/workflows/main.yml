@@ -1,0 +1,22 @@
+# every day at 06:00 (UTC+8)
+name: THU Daily Report
+on:
+  workflow_dispatch: {}
+  schedule:
+  - cron: 0 22 * * *
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Ruby 2.7
+      uses: actions/setup-ruby@v1
+      with:
+        ruby-version: 2.7
+    - name: Install dependencies
+      run: bundle
+    - name: Run
+      env:
+        USERNAME: ${{ secrets.USERNAME }}
+        PASSWORD: ${{ secrets.PASSWORD }}
+      run: ./main.rb
