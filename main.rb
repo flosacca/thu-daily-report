@@ -2,6 +2,8 @@
 
 require 'http'
 require 'nokogiri'
+require 'multi_json'
+require 'jsonpath'
 
 module Utils
   def assert(test)
@@ -32,8 +34,8 @@ class Reporter
     end
   end
 
-  ATTRIBUTES.each_key do |k|
-    attr_reader k.to_s[1..-1]
+  ATTRIBUTES.each_key do |key|
+    attr_reader key.to_s[1..-1]
   end
 
   def initialize
@@ -85,7 +87,7 @@ class Reporter
       from: 'hall'
     })
     assert res.code == 200
-    res = JSON.parse(res.to_s)
+    res = MultiJson.load(res.to_s)
     form_id = res['formID']
     proc_id = res['procID']
     # privilege_id = res['privilegeID']
@@ -97,11 +99,19 @@ class Reporter
     assert res.code == 200
     doc = Nokogiri::HTML(res.to_s)
     data = doc.at('#dcstr').text
-    puts data
+    data.gsub!(/\b\w+\b(?=\s*:)/, '"\&"')
+    data = MultiJson.load(data)
+    data = %i[
+      ID_NUMBER USER_NAME UNIT_NAME BJ DH XQ
+      YHLB SFQRZ XSSF JRSZD MQXXSZ JCXQK SFGFXDQ JKQK
+    ].each_with_object({}) do |k, h|
+      path = '$..primary[?(@.name =~ /\b%s\z/)].value' % k
+      h[k] = JsonPath.new(path).first(data)
+    end
+    data[:ts] = '%.f' % [Time.now.to_f * 1000]
 
-    # data = File.read('data.txt')
-    # data.gsub!('timestamp', '%.f' % [Time.now.to_f * 1000])
-
+    tpl = File.read('tpl.txt')
+    puts tpl % data
     # res = http.headers({
     #   'Content-Type' => 'text/plain;charset=UTF-8',
     #   'Referer' => root_url + 'view?m=fp#' + URI.encode_www_form({
@@ -118,7 +128,7 @@ class Reporter
     #     workitemid: '',
     #     process: proc_id
     #   },
-    #   body: data
+    #   body: tpl % data
     # })
 
   end
