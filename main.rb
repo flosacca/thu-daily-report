@@ -52,24 +52,28 @@ class Reporter
   end
 
   def login(username, password)
+    return unless cookies.empty?
+
     # 从服务页面重定向到登录页面
     # 登录页面的地址与服务页面的子域名相关，因此通过重定向间接访问
     res = http.follow.get(root_url + '/fp/')
     assert res.code == 200
+    @cookies = res.cookies
 
     # 需要使用 GET 登录页面返回的 cookie 才能正确登录
     # 诡异的是，即使指定使用过的此前返回的 cookie，也需要 GET
     # 一次登录页面，否则会登录失败
     url = 'https://id.tsinghua.edu.cn/do/off/ui/auth/login/check'
-    res = http.headers(referer: res.uri.to_s)
-      .cookies(res.cookies)
-      .post(url, form: {
-        i_user: username,
-        i_pass: password
-      })
+    res = http.headers({
+      'Referer' => res.uri.to_s
+    }).post(url, form: {
+      i_user: username,
+      i_pass: password
+    })
     assert res.code == 200
     doc = Nokogiri::HTML(res.to_s)
     assert doc.at('.form-signin').nil?
+    @cookies = res.cookies
 
     # 上一个请求返回 HTML，包含一个中间地址
     # 这个地址的查询参数包含一个 ticket，GET 这个地址返回最终需要的 cookie
@@ -92,45 +96,49 @@ class Reporter
     proc_id = res['procID']
     # privilege_id = res['privilegeID']
 
-    res = http.get('/fp/formParser', params: {
+    qs = URI.encode_www_form({
       status: 'select',
       formid: form_id
     })
+    res = http.get('/fp/formParser?' + qs)
     assert res.code == 200
     doc = Nokogiri::HTML(res.to_s)
     data = doc.at('#dcstr').text
     data.gsub!(/\b\w+\b(?=\s*:)/, '"\&"')
     data = MultiJson.load(data)
+
     data = %i[
       ID_NUMBER USER_NAME UNIT_NAME BJ DH XQ
       YHLB SFQRZ XSSF JRSZD MQXXSZ JCXQK SFGFXDQ JKQK
     ].each_with_object({}) do |k, h|
-      path = '$..primary[?(@.name =~ /\b%s\z/)].value' % k
-      h[k] = JsonPath.new(path).first(data)
+      p = '$..primary[?(@.name =~ /\b%s\z/)].value'
+      h[k] = JsonPath.new(p % k).first(data)
     end
     data[:ts] = '%.f' % [Time.now.to_f * 1000]
+    data = File.read('tpl.txt') % data
 
-    tpl = File.read('tpl.txt')
-    puts tpl % data
-    # res = http.headers({
-    #   'Content-Type' => 'text/plain;charset=UTF-8',
-    #   'Referer' => root_url + 'view?m=fp#' + URI.encode_www_form({
-    #     from: 'hall',
-    #     serveID: service_id,
-    #     act: 'fp/serveapply'
-    #   })
-    # }).post('/fp/formParser', {
-    #   params: {
-    #     status: 'update',
-    #     formid: form_id,
-    #     workflowAction: 'startProcess',
-    #     seqId: '',
-    #     workitemid: '',
-    #     process: proc_id
-    #   },
-    #   body: tpl % data
-    # })
+    res = http.headers({
+      'Content-Type' => 'text/plain;charset=UTF-8',
+      'Referer' => res.uri.to_s
+    }).post('/fp/formParser', {
+      params: {
+        status: 'update',
+        formid: form_id,
+        workflowAction: 'startProcess',
+        seqId: '',
+        workitemid: '',
+        process: proc_id
+      },
+      body: data
+    })
+    assert res.code == 200
 
+    res = http.headers({
+      'Referer' => root_url + '/fp/view?m=fp'
+    }).post('/fp/fp/formHome/updateVisit', json: {
+      server_id: service_id
+    })
+    assert res.code == 200
   end
 end
 
