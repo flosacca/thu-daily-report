@@ -149,6 +149,7 @@ end
     r.submit
     break
   rescue StandardError
+    sleep 30
     next
   end
 end
